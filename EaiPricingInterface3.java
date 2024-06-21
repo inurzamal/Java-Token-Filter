@@ -1,10 +1,10 @@
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Mono;
-
 import javax.annotation.PostConstruct;
 import java.util.Date;
 import java.util.Properties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class EaiPricingInterface {
@@ -32,7 +32,7 @@ public class EaiPricingInterface {
         this.xmlUtil = XMLUtil.getInstance();
     }
 
-    public Mono<EaiPricingResponse> getRate(EaiPricingRequest_Celws request) {
+    public EaiPricingResponse getRate(EaiPricingRequest_Celws request) {
         StringBuffer sb = xmlUtil.startXmlDocument(XMLHDR);
         xmlUtil.openElement(sb, "EAIPricingRequest");
 
@@ -70,63 +70,4 @@ public class EaiPricingInterface {
             xmlUtil.addElement(sb, "LoanAmount", StringUtil.toInt(request.getNoteAmount()));
         }
 
-        xmlUtil.addElement(sb, "LoanClass", request.getLoanClass());
-        xmlUtil.addElement(sb, "Occupancy", request.getOccupancy());
-        xmlUtil.addElement(sb, "PrePayYears", request.getPrePayYears());
-        xmlUtil.addElement(sb, "Product", request.getProduct());
-        xmlUtil.addElement(sb, "ProductFeature", request.getProductFeature());
-        xmlUtil.addElement(sb, "PropertyType", request.getPropertyType());
-        xmlUtil.addElement(sb, "QuoteDate", request.getQuoteDate(), "yyyyMMddHHmmssSSS");
-        xmlUtil.addElement(sb, "PropertyState", request.getPropertyState());
-        xmlUtil.addElement(sb, "PricingState", request.getPricingState());
-        xmlUtil.addElement(sb, "ChannelSource", request.getChannelSource());
-        xmlUtil.addElement(sb, "MarketSource", request.getMarketSource());
-        xmlUtil.addElement(sb, "MiscMarginAdjuster", "");
-        xmlUtil.addElement(sb, "MiscRateAdjuster", request.getRateAdjusters());
-        xmlUtil.addElement(sb, "CallerId", "42");
-        xmlUtil.closeElement(sb, "Body");
-        xmlUtil.closeElement(sb, "EAIPricingRequest");
-
-        if (request.isCaptureXml()) {
-            request.setXml(sb.toString());
-        }
-        log.info("CELWS Pricing Request: {}", sb);
-
-        String eaiURL = StringUtils.trimToNull(control.getControlValue(ProcessControlConstants.EAI_URL));
-        if (eaiURL != null) {
-            log.debug("R2.19:: EaiPricingInterface: URL in getRate: EaiPricingRequest_Celws:: {}", eaiURL);
-            return oAuthenticationService.getOathAccessToken()
-                    .flatMap(token -> Mono.fromCallable(() -> {
-                        String result = soapServiceInvoker.invokeService(eaiURL, sb.toString(), new Properties() {{
-                            put(CleaConstants.CONTENT_TYPE, "text/xml");
-                            put("Authorization", "Bearer " + token);
-                        }});
-
-                        result = StringUtil.removeString(result, "xmlns=\"http://HEQAPPAZPHX01.wellsfargo.com/\"");
-
-                        Document doc = xmlUtil.getXMLDocument(result);
-
-                        log.info("EaiPricingInterface: CELWS Pricing Response: {}", doc.asXML());
-
-                        EaiPricingResponse response = new EaiPricingResponse();
-                        response.setRate(xmlUtil.getNodeValue(doc, RATE_XPATH));
-                        response.setStatusCode(xmlUtil.getNodeValue(doc, STATUSCODE_XPATH));
-                        response.setStatusMsg(xmlUtil.getNodeValue(doc, STATUSMSG_XPATH));
-                        response.setExclusionMsg(xmlUtil.getNodeValue(doc, EXCLUSION_MSG_XPATH));
-
-                        if (request.isCaptureXml() && response != null) {
-                            response.setXml(result);
-                        }
-
-                        return response;
-                    }))
-                    .doOnError(e -> {
-                        log.error("Error processing EAI pricing request", e);
-                        throw new RuntimeException("Error processing EAI pricing request", e);
-                    });
-        } else {
-            log.error("EAI URL not configured.");
-            return Mono.error(new IllegalStateException("EAI URL not configured."));
-        }
-    }
-}
+        xmlUtil.addElement(sb, "LoanClass", request.getLoan
