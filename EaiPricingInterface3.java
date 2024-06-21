@@ -1,3 +1,11 @@
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
+
+import javax.annotation.PostConstruct;
+import java.util.Date;
+import java.util.Properties;
+
 @Service
 public class EaiPricingInterface {
 
@@ -7,7 +15,7 @@ public class EaiPricingInterface {
     private static final String XMLHDR = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
     private static final String EXCLUSION_MSG_XPATH = "//EAIPricingResponse/Body/ExclusionResultSet/Exclusion";
 
-    private final XMLUtil xmlUtil;
+    private XMLUtil xmlUtil;
     private static final Logger log = LoggerFactory.getLogger(EaiPricingInterface.class);
 
     @Autowired
@@ -88,33 +96,34 @@ public class EaiPricingInterface {
         if (eaiURL != null) {
             log.debug("R2.19:: EaiPricingInterface: URL in getRate: EaiPricingRequest_Celws:: {}", eaiURL);
             return oAuthenticationService.getOathAccessToken()
-                    .flatMap(token -> {
-                        return Mono.fromCallable(() -> {
-                            String result = soapServiceInvoker.invokeService(eaiURL, sb.toString(), new Properties() {{
-                                put(CleaConstants.CONTENT_TYPE, "text/xml");
-                                put("Authorization", "Bearer " + token);
-                            }});
+                    .flatMap(token -> Mono.fromCallable(() -> {
+                        String result = soapServiceInvoker.invokeService(eaiURL, sb.toString(), new Properties() {{
+                            put(CleaConstants.CONTENT_TYPE, "text/xml");
+                            put("Authorization", "Bearer " + token);
+                        }});
 
-                            result = StringUtil.removeString(result, "xmlns=\"http://HEQAPPAZPHX01.wellsfargo.com/\"");
+                        result = StringUtil.removeString(result, "xmlns=\"http://HEQAPPAZPHX01.wellsfargo.com/\"");
 
-                            Document doc = xmlUtil.getXMLDocument(result);
+                        Document doc = xmlUtil.getXMLDocument(result);
 
-                            log.info("EaiPricingInterface: CELWS Pricing Response: {}", doc.asXML());
+                        log.info("EaiPricingInterface: CELWS Pricing Response: {}", doc.asXML());
 
-                            EaiPricingResponse response = new EaiPricingResponse();
-                            response.setRate(xmlUtil.getNodeValue(doc, RATE_XPATH));
-                            response.setStatusCode(xmlUtil.getNodeValue(doc, STATUSCODE_XPATH));
-                            response.setStatusMsg(xmlUtil.getNodeValue(doc, STATUSMSG_XPATH));
-                            response.setExclusionMsg(xmlUtil.getNodeValue(doc, EXCLUSION_MSG_XPATH));
+                        EaiPricingResponse response = new EaiPricingResponse();
+                        response.setRate(xmlUtil.getNodeValue(doc, RATE_XPATH));
+                        response.setStatusCode(xmlUtil.getNodeValue(doc, STATUSCODE_XPATH));
+                        response.setStatusMsg(xmlUtil.getNodeValue(doc, STATUSMSG_XPATH));
+                        response.setExclusionMsg(xmlUtil.getNodeValue(doc, EXCLUSION_MSG_XPATH));
 
-                            if (request.isCaptureXml() && response != null) {
-                                response.setXml(result);
-                            }
+                        if (request.isCaptureXml() && response != null) {
+                            response.setXml(result);
+                        }
 
-                            return response;
-                        });
-                    })
-                    .doOnError(e -> log.error("Error processing EAI pricing request", e));
+                        return response;
+                    }))
+                    .doOnError(e -> {
+                        log.error("Error processing EAI pricing request", e);
+                        throw new RuntimeException("Error processing EAI pricing request", e);
+                    });
         } else {
             log.error("EAI URL not configured.");
             return Mono.error(new IllegalStateException("EAI URL not configured."));
