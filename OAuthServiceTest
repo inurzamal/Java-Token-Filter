@@ -1,0 +1,118 @@
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.reactive.function.client.WebClient.RequestBodyUriSpec;
+import org.springframework.web.reactive.function.client.WebClient.ResponseSpec;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
+
+public class OAuthenticationServiceTest {
+
+    @Mock
+    private WebClient.Builder webClientBuilder;
+    @Mock
+    private WebClient webClient;
+    @Mock
+    private RequestBodyUriSpec requestBodyUriSpec;
+    @Mock
+    private WebClient.RequestHeadersSpec requestHeadersSpec;
+    @Mock
+    private ResponseSpec responseSpec;
+
+    @InjectMocks
+    private OAuthenticationService oAuthenticationService;
+
+    @Value("${OATH_AUTHORIZATION}")
+    private String authString = "testAuthString";
+
+    @Value("${OATH_SERVICE_END_POINT_URL}")
+    private String authUrl = "http://testAuthUrl.com";
+
+    @Before
+    public void setUp() {
+        MockitoAnnotations.initMocks(this);
+        when(webClientBuilder.baseUrl(anyString())).thenReturn(webClientBuilder);
+        when(webClientBuilder.build()).thenReturn(webClient);
+        when(webClient.post()).thenReturn(requestBodyUriSpec);
+        when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodyUriSpec);
+        when(requestBodyUriSpec.headers(any())).thenReturn(requestBodyUriSpec);
+        when(requestBodyUriSpec.retrieve()).thenReturn(responseSpec);
+
+        // Manually inject the private fields
+        oAuthenticationService = new OAuthenticationService(webClient);
+        ReflectionTestUtils.setField(oAuthenticationService, "authString", authString);
+        ReflectionTestUtils.setField(oAuthenticationService, "authUrl", authUrl);
+    }
+
+    @Test
+    public void testGetOathAccessToken_NewToken() {
+        // Prepare response map with new token and expiration
+        Map<String, String> responseMap = new HashMap<>();
+        responseMap.put("access_token", "newAccessToken");
+        responseMap.put("expires_in", "300");
+
+        // Mock response bodyToMono
+        when(responseSpec.bodyToMono(any(ParameterizedTypeReference.class))).thenReturn(Mono.just(responseMap));
+
+        // Call the method
+        Mono<String> tokenMono = Mono.fromCallable(() -> oAuthenticationService.getOathAccessToken());
+
+        // Verify new access token is returned
+        StepVerifier.create(tokenMono)
+                .expectNext("newAccessToken")
+                .verifyComplete();
+    }
+
+    @Test
+    public void testGetOathAccessToken_CachedToken() {
+        // Manually set the cached token and expiration time
+        ReflectionTestUtils.setField(oAuthenticationService, "cachedToken", "cachedAccessToken");
+        ReflectionTestUtils.setField(oAuthenticationService, "tokenExpirationTime", Instant.now().plusSeconds(300));
+
+        // Call the method
+        Mono<String> tokenMono = Mono.fromCallable(() -> oAuthenticationService.getOathAccessToken());
+
+        // Verify cached access token is returned
+        StepVerifier.create(tokenMono)
+                .expectNext("cachedAccessToken")
+                .verifyComplete();
+    }
+
+    @Test
+    public void testGetOathAccessToken_Error() {
+        // Mock error response
+        when(responseSpec.bodyToMono(any(ParameterizedTypeReference.class)))
+                .thenReturn(Mono.error(new WebClientResponseException(
+                        "Error response from auth service",
+                        HttpStatus.UNAUTHORIZED.value(),
+                        HttpStatus.UNAUTHORIZED.getReasonPhrase(),
+                        null,
+                        null,
+                        null
+                )));
+
+        // Call the method
+        Mono<String> tokenMono = Mono.fromCallable(() -> oAuthenticationService.getOathAccessToken());
+
+        // Verify error is returned
+        StepVerifier.create(tokenMono)
+                .expectError(WebClientResponseException.class)
+                .verify();
+    }
+}
